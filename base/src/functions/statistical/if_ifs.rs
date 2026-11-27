@@ -29,12 +29,11 @@ fn array_node_to_calc_result(node: &ArrayNode, cell: CellReferenceIndex) -> Calc
 
 /// The range that starts at the top-left cell of `range` and has the height and
 /// width of `shape`, cut at the edge of the sheet.
-fn resize_to(range: &Range, shape: &Range) -> Range {
-    let mut resized = range.clone();
-    resized.right.row = (range.left.row + shape.right.row - shape.left.row).min(LAST_ROW);
-    resized.right.column =
+fn resize_to(mut range: Range, shape: &Range) -> Range {
+    range.right.row = (range.left.row + shape.right.row - shape.left.row).min(LAST_ROW);
+    range.right.column =
         (range.left.column + shape.right.column - shape.left.column).min(LAST_COLUMN);
-    resized
+    range
 }
 
 impl<'a> Model<'a> {
@@ -50,15 +49,93 @@ impl<'a> Model<'a> {
     /// AVERAGEIF(criteria_range, criteria, [average_range])
     /// if average_rage is missing then criteria_range will be used
     pub(crate) fn fn_averageif(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
-        if args.len() == 2 {
-            let arguments = vec![args[0].clone(), args[0].clone(), args[1].clone()];
-            self.average_ifs(&arguments, cell, true)
-        } else if args.len() == 3 {
-            let arguments = vec![args[2].clone(), args[0].clone(), args[1].clone()];
-            self.average_ifs(&arguments, cell, true)
-        } else {
-            CalcResult::new_args_number_error(cell)
+        if args.len() != 2 && args.len() != 3 {
+            return CalcResult::new_args_number_error(cell);
         }
+        let (average_range, criteria_range) = match self.if_ranges(&args[0], args.get(2), cell) {
+            Ok(ranges) => ranges,
+            Err(e) => return e,
+        };
+        let criterion = self.evaluate_node_in_context(&args[1], cell);
+        let fn_criteria = [build_criteria(&criterion, self.locale, self.date_system())];
+        let mut total = 0.0;
+        let mut count = 0.0;
+        let average = |value: f64| {
+            total += value;
+            count += 1.0;
+        };
+        if let Err(e) = self.run_ifs(
+            &average_range,
+            std::slice::from_ref(&criteria_range),
+            &fn_criteria,
+            cell,
+            average,
+        ) {
+            return e;
+        }
+
+        if count == 0.0 {
+            return CalcResult::Error {
+                error: Error::DIV,
+                origin: cell,
+                message: "division by 0".to_string(),
+            };
+        }
+        CalcResult::Number(total / count)
+    }
+
+    /// The ranges of SUMIF and AVERAGEIF: `(sum range, criteria range)`.
+    ///
+    /// As in Excel, a sum (or average) range of another size is taken as
+    /// starting at its own top-left cell with the height and width of the
+    /// criteria range. Without a sum range the criteria range is used. The
+    /// *IFS functions don't do this: they need ranges of equal size.
+    fn if_ranges(
+        &mut self,
+        criteria_range: &Node,
+        sum_range: Option<&Node>,
+        cell: CellReferenceIndex,
+    ) -> Result<(Range, Range), CalcResult> {
+        let criteria_range = self.node_to_range(criteria_range, cell)?;
+        let Some(sum_range) = sum_range else {
+            return Ok((criteria_range.clone(), criteria_range));
+        };
+        let sum_range = resize_to(self.node_to_range(sum_range, cell)?, &criteria_range);
+        let sheet = sum_range.left.sheet;
+        let (top, left) = (sum_range.left.row, sum_range.left.column);
+        let (bottom, right) = (sum_range.right.row, sum_range.right.column);
+        if bottom < LAST_ROW && right < LAST_COLUMN {
+            return Ok((sum_range, criteria_range));
+        }
+        // The resized range can reach the edge of the sheet without being a
+        // whole row or column (B2 against A:A), which run_ifs does not clip to
+        // the used area. Clip it here, as clip_to_used_area does.
+        let dimension = match self.workbook.worksheet(sheet) {
+            Ok(s) => s.dimension(),
+            Err(_) => {
+                return Err(CalcResult::new_error(
+                    Error::ERROR,
+                    cell,
+                    format!("Invalid worksheet index: '{sheet}'"),
+                ))
+            }
+        };
+        let last_row = if bottom == LAST_ROW {
+            dimension.max_row.max(top - 1)
+        } else {
+            bottom
+        };
+        let last_column = if right == LAST_COLUMN {
+            dimension.max_column.max(left - 1)
+        } else {
+            right
+        };
+        self.record_seen_empty_range(sheet, last_row + 1, left, bottom, right);
+        self.record_seen_empty_range(sheet, top, last_column + 1, last_row, right);
+        let mut sum_range = sum_range;
+        sum_range.right.row = last_row;
+        sum_range.right.column = last_column;
+        Ok((sum_range, criteria_range))
     }
 
     // FIXME: This function shares a lot of code with apply_ifs. Can we merge them?
@@ -198,29 +275,11 @@ impl<'a> Model<'a> {
     where
         F: FnMut(f64),
     {
-        self.apply_ifs_resized(args, cell, false, apply)
-    }
-
-    /// Same as [`Model::apply_ifs`]. When `resize_sum_range` is true the first
-    /// range is taken as starting at its top-left cell with the shape of the
-    /// first criteria range, which is what SUMIF and AVERAGEIF do in Excel when
-    /// the two ranges differ in size. The *IFS functions don't resize: they need
-    /// equal sizes.
-    fn apply_ifs_resized<F>(
-        &mut self,
-        args: &[Node],
-        cell: CellReferenceIndex,
-        resize_sum_range: bool,
-        apply: F,
-    ) -> Result<(), CalcResult>
-    where
-        F: FnMut(f64),
-    {
         let args_count = args.len();
         if args_count < 3 || args_count.is_multiple_of(2) {
             return Err(CalcResult::new_args_number_error(cell));
         }
-        let mut sum_range = self.node_to_range(&args[0], cell)?;
+        let sum_range = self.node_to_range(&args[0], cell)?;
 
         let case_count = (args_count - 1) / 2;
         // NB: this is a beautiful example of the borrow checker
@@ -241,9 +300,6 @@ impl<'a> Model<'a> {
         for criterion in criteria.iter() {
             fn_criteria.push(build_criteria(criterion, self.locale, self.date_system()));
         }
-        if resize_sum_range {
-            sum_range = resize_to(&sum_range, &ranges[0]);
-        }
 
         self.run_ifs(&sum_range, ranges.as_slice(), &fn_criteria, cell, apply)
     }
@@ -252,7 +308,7 @@ impl<'a> Model<'a> {
     /// cell in each criteria range satisfies the matching criterion. `ranges` and
     /// `fn_criteria` are parallel (one criteria range and one predicate per case).
     ///
-    /// Shared by [`Model::apply_ifs`] and the array-criteria path of SUMIF.
+    /// Shared by [`Model::apply_ifs`], SUMIF and AVERAGEIF.
     pub(crate) fn run_ifs<F>(
         &mut self,
         sum_range: &Range,
@@ -363,6 +419,32 @@ impl<'a> Model<'a> {
         }
     }
 
+    /// SUMIF with a single criterion, which returns a scalar.
+    fn sumif_scalar(
+        &mut self,
+        criteria_range: &Node,
+        criterion: &CalcResult,
+        sum_range: Option<&Node>,
+        cell: CellReferenceIndex,
+    ) -> CalcResult {
+        let (sum_range, criteria_range) = match self.if_ranges(criteria_range, sum_range, cell) {
+            Ok(ranges) => ranges,
+            Err(e) => return e,
+        };
+        let fn_criteria = [build_criteria(criterion, self.locale, self.date_system())];
+        let mut total = 0.0;
+        match self.run_ifs(
+            &sum_range,
+            std::slice::from_ref(&criteria_range),
+            &fn_criteria,
+            cell,
+            |v| total += v,
+        ) {
+            Ok(()) => CalcResult::Number(total),
+            Err(e) => e,
+        }
+    }
+
     /// SUMIF where the `criteria` argument may be a single value, a range or an
     /// array. A scalar criterion yields a single sum; a range or array criterion
     /// spills one sum per criterion element, preserving the criteria's shape.
@@ -370,66 +452,53 @@ impl<'a> Model<'a> {
         &mut self,
         criteria_range: &Node,
         criteria: &Node,
-        sum_range: &Node,
+        sum_range: Option<&Node>,
         cell: CellReferenceIndex,
     ) -> CalcResult {
         // Collect the criteria into a 2-D grid of scalar values. A scalar
         // criterion takes the ordinary (non-spilling) SUMIFS path.
-        let criteria_grid: Vec<Vec<CalcResult>> = match self
-            .evaluate_node_in_context(criteria, cell)
-        {
-            CalcResult::Range { left, right } => {
-                if left.sheet != right.sheet {
-                    return CalcResult::new_error(
-                        Error::VALUE,
-                        cell,
-                        "Ranges are in different sheets".to_string(),
-                    );
-                }
-                let mut grid = Vec::new();
-                for r in left.row..=right.row {
-                    let mut row = Vec::new();
-                    for c in left.column..=right.column {
-                        row.push(self.evaluate_cell(CellReferenceIndex {
-                            sheet: left.sheet,
-                            row: r,
-                            column: c,
-                        }));
+        let criteria_grid: Vec<Vec<CalcResult>> =
+            match self.evaluate_node_in_context(criteria, cell) {
+                CalcResult::Range { left, right } => {
+                    if left.sheet != right.sheet {
+                        return CalcResult::new_error(
+                            Error::VALUE,
+                            cell,
+                            "Ranges are in different sheets".to_string(),
+                        );
                     }
-                    grid.push(row);
+                    let mut grid = Vec::new();
+                    for r in left.row..=right.row {
+                        let mut row = Vec::new();
+                        for c in left.column..=right.column {
+                            row.push(self.evaluate_cell(CellReferenceIndex {
+                                sheet: left.sheet,
+                                row: r,
+                                column: c,
+                            }));
+                        }
+                        grid.push(row);
+                    }
+                    grid
                 }
-                grid
-            }
-            CalcResult::Array(array) => array
-                .iter()
-                .map(|row| {
-                    row.iter()
-                        .map(|node| array_node_to_calc_result(node, cell))
-                        .collect()
-                })
-                .collect(),
-            _ => {
-                // Single criterion: delegate to SUMIFS, which returns a scalar.
-                let arguments = vec![sum_range.clone(), criteria_range.clone(), criteria.clone()];
-                let mut total = 0.0;
-                return match self.apply_ifs_resized(&arguments, cell, true, |v| total += v) {
-                    Ok(()) => CalcResult::Number(total),
-                    Err(e) => e,
-                };
-            }
-        };
+                CalcResult::Array(array) => array
+                    .iter()
+                    .map(|row| {
+                        row.iter()
+                            .map(|node| array_node_to_calc_result(node, cell))
+                            .collect()
+                    })
+                    .collect(),
+                // Single criterion: a scalar sum.
+                other => return self.sumif_scalar(criteria_range, &other, sum_range, cell),
+            };
 
         // Range/array criteria: resolve the ranges once, then compute one sum
         // per criterion and spill the results.
-        let sum_range = match self.node_to_range(sum_range, cell) {
-            Ok(r) => r,
+        let (sum_range, criteria_range) = match self.if_ranges(criteria_range, sum_range, cell) {
+            Ok(ranges) => ranges,
             Err(e) => return e,
         };
-        let criteria_range = match self.node_to_range(criteria_range, cell) {
-            Ok(r) => r,
-            Err(e) => return e,
-        };
-        let sum_range = resize_to(&sum_range, &criteria_range);
 
         let mut output: Vec<Vec<ArrayNode>> = Vec::with_capacity(criteria_grid.len());
         for criteria_row in &criteria_grid {
@@ -456,15 +525,6 @@ impl<'a> Model<'a> {
     }
 
     pub(crate) fn fn_averageifs(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
-        self.average_ifs(args, cell, false)
-    }
-
-    fn average_ifs(
-        &mut self,
-        args: &[Node],
-        cell: CellReferenceIndex,
-        resize_average_range: bool,
-    ) -> CalcResult {
         let mut total = 0.0;
         let mut count = 0.0;
 
@@ -472,7 +532,7 @@ impl<'a> Model<'a> {
             total += value;
             count += 1.0;
         };
-        if let Err(e) = self.apply_ifs_resized(args, cell, resize_average_range, average) {
+        if let Err(e) = self.apply_ifs(args, cell, average) {
             return e;
         }
 
