@@ -335,3 +335,50 @@ fn test_xmatch_xlookup_binary_ignores_blanks() {
     assert_eq!(model._get_text("E5"), "4");
     assert_eq!(model._get_text("E6"), "4");
 }
+
+#[test]
+fn test_xmatch_xlookup_binary_all_blank_leading_and_interior_blanks() {
+    let mut model = new_empty_model();
+    // Column A is empty. Column C has leading blanks, column E descending
+    // data with interior blanks, column G the results.
+    for (row, value) in [10, 20, 30, 40, 50].iter().enumerate() {
+        model._set(&format!("C{}", row + 4), &value.to_string());
+        model._set(&format!("G{}", row + 4), &(row + 1).to_string());
+    }
+    for (row, value) in [(1, 50), (2, 40), (4, 30), (5, 20)] {
+        model._set(&format!("E{row}"), &value.to_string());
+    }
+    // All blank
+    model._set("I1", "=XMATCH(5,A1:A20,-1,2)");
+    model._set("I2", "=XMATCH(5,A1:A5,0,2)");
+    model._set("I3", "=XMATCH(5,A1:A5,1,-2)");
+    model._set("I4", "=XLOOKUP(5,A1:A5,G1:G5,\"none\",-1,2)");
+    model._set("I5", "=XLOOKUP(5,A1:A5,G1:G5,\"none\",0,2)");
+    model._set("I6", "=XLOOKUP(5,A1:A5,G1:G5,\"none\",1,2)");
+    // Leading blanks
+    model._set("J1", "=XMATCH(45,C1:C20,-1,2)");
+    model._set("J2", "=XMATCH(40,C1:C20,0,2)");
+    model._set("J3", "=XMATCH(500,C1:C20,1,2)");
+    model._set("J4", "=XMATCH(5,C1:C20,-1,2)");
+    model._set("J5", "=XLOOKUP(45,C1:C20,G1:G20,\"none\",-1,2)");
+    // Descending with interior blanks
+    model._set("K1", "=XMATCH(25,E1:E10,1,-2)");
+    model._set("K2", "=XMATCH(25,E1:E10,-1,-2)");
+    model._set("K3", "=XMATCH(30,E1:E10,0,-2)");
+    // An empty lookup value is not found
+    model._set("L1", "=XMATCH(Z1,C1:C20,0,2)");
+    model._set("L2", "=XMATCH(Z1,C1:C20,-1,2)");
+    model.evaluate();
+    for cell in ["I1", "I2", "I3", "J3", "J4", "L1", "L2"] {
+        assert_eq!(model._get_text(cell), "#N/A", "{cell}");
+    }
+    for cell in ["I4", "I5", "I6"] {
+        assert_eq!(model._get_text(cell), "none", "{cell}");
+    }
+    assert_eq!(model._get_text("J1"), "7");
+    assert_eq!(model._get_text("J2"), "7");
+    assert_eq!(model._get_text("J5"), "4");
+    assert_eq!(model._get_text("K1"), "4");
+    assert_eq!(model._get_text("K2"), "5");
+    assert_eq!(model._get_text("K3"), "4");
+}

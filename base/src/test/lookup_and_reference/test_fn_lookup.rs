@@ -141,3 +141,22 @@ fn test_lookup_ignores_trailing_blanks() {
     assert_eq!(model._get_text("D1"), "4");
     assert_eq!(model._get_text("D2"), "4");
 }
+
+#[test]
+fn test_lookup_all_blank_and_leading_blanks() {
+    let mut model = new_empty_model();
+    for row in 1..=5 {
+        model._set(&format!("C{row}"), &row.to_string());
+    }
+    for (row, value) in [10, 20, 30].iter().enumerate() {
+        model._set(&format!("D{}", row + 4), &value.to_string());
+        model._set(&format!("E{}", row + 4), &(row + 1).to_string());
+    }
+    model._set("G1", "=LOOKUP(5,A1:A5,C1:C5)");
+    model._set("G2", "=LOOKUP(5,A1:A5)");
+    model._set("G3", "=LOOKUP(25,D1:D20,E1:E20)");
+    model.evaluate();
+    assert_eq!(model._get_text("G1"), "#N/A");
+    assert_eq!(model._get_text("G2"), "#N/A");
+    assert_eq!(model._get_text("G3"), "2");
+}

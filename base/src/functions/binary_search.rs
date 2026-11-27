@@ -12,6 +12,9 @@ use super::util::compare_values;
 pub(crate) fn binary_search_or_smaller<T: Ord>(target: &T, array: &[T]) -> Option<i32> {
     // We apply binary search leftmost for value in the range
     let n = array.len();
+    if n == 0 {
+        return None;
+    }
     let mut l = 0;
     let mut r = n;
     while l < r {
@@ -172,18 +175,37 @@ impl<'a> Model<'a> {
     }
 }
 
+fn is_blank(value: &CalcResult) -> bool {
+    matches!(value, CalcResult::EmptyCell | CalcResult::EmptyArg)
+}
+
+/// Whether a lookup value is an empty cell. Excel returns #N/A when an
+/// approximate (or binary) search is asked for one.
+pub(crate) fn is_blank_target(target: &CalcResult) -> bool {
+    is_blank(target)
+}
+
 /// Runs `search` on `array` ignoring empty cells, like Excel does for approximate
 /// matches (a range larger than its data, with trailing blank rows, is common).
 /// The index returned by `search` is mapped back to a position in `array`.
+/// Returns `None` if every cell is empty.
 pub(crate) fn ignoring_blanks(
     array: &[CalcResult],
     search: impl Fn(&[CalcResult]) -> Option<i32>,
 ) -> Option<i32> {
-    let (positions, values): (Vec<usize>, Vec<CalcResult>) = array
+    // Skip the leading and trailing blanks without copying anything
+    let start = array.iter().position(|v| !is_blank(v))?;
+    let end = array.iter().rposition(|v| !is_blank(v))? + 1;
+    let trimmed = &array[start..end];
+    if !trimmed.iter().any(is_blank) {
+        return search(trimmed).map(|l| l + start as i32);
+    }
+    // Empty cells in the middle: search only the cells that have a value
+    let (positions, values): (Vec<usize>, Vec<CalcResult>) = trimmed
         .iter()
         .enumerate()
-        .filter(|(_, v)| !matches!(v, CalcResult::EmptyCell | CalcResult::EmptyArg))
-        .map(|(i, v)| (i, v.clone()))
+        .filter(|(_, v)| !is_blank(v))
+        .map(|(i, v)| (start + i, v.clone()))
         .unzip();
     search(&values).map(|l| positions[l as usize] as i32)
 }
@@ -191,8 +213,11 @@ pub(crate) fn ignoring_blanks(
 /// Old style binary search over an already materialized vector of values.
 /// Returns the index of the matching element or the largest element smaller
 /// than `target`. Returns `-2` if `target` is smaller than every element.
-/// Empty cells are ignored.
+/// Empty cells are ignored, and an empty `target` is never found.
 pub(crate) fn binary_search_on_array(target: &CalcResult, array: &[CalcResult]) -> i32 {
+    if is_blank(target) {
+        return -2;
+    }
     ignoring_blanks(array, |array| {
         // We apply binary search leftmost for value in the array
         let mut l = 0;

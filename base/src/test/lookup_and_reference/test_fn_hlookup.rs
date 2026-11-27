@@ -133,3 +133,25 @@ fn test_hlookup_ignores_trailing_blanks() {
     assert_eq!(model._get_text("A5"), "4");
     assert_eq!(model._get_text("A6"), "5");
 }
+
+#[test]
+fn test_hlookup_all_blank_and_leading_blanks() {
+    let mut model = new_empty_model();
+    // Row 1 is empty, row 2 has data
+    model._set("A2", "1");
+    model._set("B2", "2");
+    // Data starts in column D
+    model._set("D4", "10");
+    model._set("E4", "20");
+    model._set("F4", "30");
+    model._set("D5", "1");
+    model._set("E5", "2");
+    model._set("F5", "3");
+    model._set("A8", "=HLOOKUP(5,A1:H2,2)");
+    model._set("A9", "=HLOOKUP(25,A4:H5,2)");
+    model._set("A10", "=HLOOKUP(5,A4:H5,2)");
+    model.evaluate();
+    assert_eq!(model._get_text("A8"), "#N/A");
+    assert_eq!(model._get_text("A9"), "2");
+    assert_eq!(model._get_text("A10"), "#N/A");
+}

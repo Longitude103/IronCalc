@@ -433,8 +433,8 @@ impl<'a> Model<'a> {
                             r = m;
                         }
                     }
-                    // If target is less than the minimum return #N/A
-                    // Now l points to the leftmost element
+                    // l is the number of elements greater than or equal to the
+                    // target; the last of them is the match (#N/A if there is none)
                     l.checked_sub(1).map(|l| l as i32)
                 });
                 match found {
