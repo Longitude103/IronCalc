@@ -194,3 +194,19 @@ fn test_fn_sumif_resizes_sum_range() {
     assert_eq!(model._get_text("D9"), *"70");
     assert_eq!(model._get_text("D10"), *"0");
 }
+
+// Without a sum range the criteria range is summed. A range that runs to the
+// last row but doesn't start at the first is clipped to the used area.
+#[test]
+fn test_fn_sumif_without_sum_range_open_ended() {
+    let mut model = new_empty_model();
+    for row in 1..=4 {
+        model._set(&format!("A{row}"), &row.to_string());
+    }
+    model._set("D1", "=SUMIF(A2:A1048576,\">2\")");
+    model._set("D2", "=AVERAGEIF(A2:A1048576,\">2\")");
+    model.evaluate();
+
+    assert_eq!(model._get_text("D1"), *"7");
+    assert_eq!(model._get_text("D2"), *"3.5");
+}

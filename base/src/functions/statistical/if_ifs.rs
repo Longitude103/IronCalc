@@ -97,10 +97,10 @@ impl<'a> Model<'a> {
         cell: CellReferenceIndex,
     ) -> Result<(Range, Range), CalcResult> {
         let criteria_range = self.node_to_range(criteria_range, cell)?;
-        let Some(sum_range) = sum_range else {
-            return Ok((criteria_range.clone(), criteria_range));
+        let mut sum_range = match sum_range {
+            Some(node) => resize_to(self.node_to_range(node, cell)?, &criteria_range),
+            None => criteria_range.clone(),
         };
-        let sum_range = resize_to(self.node_to_range(sum_range, cell)?, &criteria_range);
         let sheet = sum_range.left.sheet;
         let (top, left) = (sum_range.left.row, sum_range.left.column);
         let (bottom, right) = (sum_range.right.row, sum_range.right.column);
@@ -132,7 +132,6 @@ impl<'a> Model<'a> {
         };
         self.record_seen_empty_range(sheet, last_row + 1, left, bottom, right);
         self.record_seen_empty_range(sheet, top, last_column + 1, last_row, right);
-        let mut sum_range = sum_range;
         sum_range.right.row = last_row;
         sum_range.right.column = last_column;
         Ok((sum_range, criteria_range))
@@ -456,42 +455,42 @@ impl<'a> Model<'a> {
         cell: CellReferenceIndex,
     ) -> CalcResult {
         // Collect the criteria into a 2-D grid of scalar values. A scalar
-        // criterion takes the ordinary (non-spilling) SUMIFS path.
-        let criteria_grid: Vec<Vec<CalcResult>> =
-            match self.evaluate_node_in_context(criteria, cell) {
-                CalcResult::Range { left, right } => {
-                    if left.sheet != right.sheet {
-                        return CalcResult::new_error(
-                            Error::VALUE,
-                            cell,
-                            "Ranges are in different sheets".to_string(),
-                        );
-                    }
-                    let mut grid = Vec::new();
-                    for r in left.row..=right.row {
-                        let mut row = Vec::new();
-                        for c in left.column..=right.column {
-                            row.push(self.evaluate_cell(CellReferenceIndex {
-                                sheet: left.sheet,
-                                row: r,
-                                column: c,
-                            }));
-                        }
-                        grid.push(row);
-                    }
-                    grid
+        // criterion takes the ordinary (non-spilling) path.
+        let criteria = self.evaluate_node_in_context(criteria, cell);
+        let criteria_grid: Vec<Vec<CalcResult>> = match &criteria {
+            CalcResult::Range { left, right } => {
+                if left.sheet != right.sheet {
+                    return CalcResult::new_error(
+                        Error::VALUE,
+                        cell,
+                        "Ranges are in different sheets".to_string(),
+                    );
                 }
-                CalcResult::Array(array) => array
-                    .iter()
-                    .map(|row| {
-                        row.iter()
-                            .map(|node| array_node_to_calc_result(node, cell))
-                            .collect()
-                    })
-                    .collect(),
-                // Single criterion: a scalar sum.
-                other => return self.sumif_scalar(criteria_range, &other, sum_range, cell),
-            };
+                let mut grid = Vec::new();
+                for r in left.row..=right.row {
+                    let mut row = Vec::new();
+                    for c in left.column..=right.column {
+                        row.push(self.evaluate_cell(CellReferenceIndex {
+                            sheet: left.sheet,
+                            row: r,
+                            column: c,
+                        }));
+                    }
+                    grid.push(row);
+                }
+                grid
+            }
+            CalcResult::Array(array) => array
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|node| array_node_to_calc_result(node, cell))
+                        .collect()
+                })
+                .collect(),
+            // Single criterion: a scalar sum.
+            _ => return self.sumif_scalar(criteria_range, &criteria, sum_range, cell),
+        };
 
         // Range/array criteria: resolve the ranges once, then compute one sum
         // per criterion and spill the results.
