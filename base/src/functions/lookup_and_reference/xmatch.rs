@@ -11,7 +11,7 @@ use crate::{
 use crate::functions::{
     binary_search::{
         binary_search_descending_or_greater, binary_search_descending_or_smaller,
-        binary_search_or_greater, binary_search_or_smaller,
+        binary_search_or_greater, binary_search_or_smaller, ignoring_blanks, is_blank_target,
     },
     util::{compare_values, from_wildcard_to_regex, result_matches_regex},
 };
@@ -288,16 +288,24 @@ impl<'a> Model<'a> {
                         "Wildcard/regex match cannot be used with binary search".to_string(),
                     );
                 }
-                let idx_opt = if match_mode == MatchMode::ExactMatchLarger {
-                    if search_mode == SearchMode::BinaryAscending {
-                        binary_search_or_greater(&lookup_value, &array)
-                    } else {
-                        binary_search_descending_or_greater(&lookup_value, &array)
-                    }
-                } else if search_mode == SearchMode::BinaryAscending {
-                    binary_search_or_smaller(&lookup_value, &array)
+                // Empty cells are ignored, as in Excel
+                // and an empty lookup value is never found
+                let idx_opt = if is_blank_target(&lookup_value) {
+                    None
                 } else {
-                    binary_search_descending_or_smaller(&lookup_value, &array)
+                    ignoring_blanks(&array, |array| {
+                        if match_mode == MatchMode::ExactMatchLarger {
+                            if search_mode == SearchMode::BinaryAscending {
+                                binary_search_or_greater(&lookup_value, array)
+                            } else {
+                                binary_search_descending_or_greater(&lookup_value, array)
+                            }
+                        } else if search_mode == SearchMode::BinaryAscending {
+                            binary_search_or_smaller(&lookup_value, array)
+                        } else {
+                            binary_search_descending_or_smaller(&lookup_value, array)
+                        }
+                    })
                 };
 
                 match idx_opt {

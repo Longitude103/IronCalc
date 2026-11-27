@@ -7,7 +7,7 @@ use crate::{
     utils::ParsedReference,
 };
 
-use super::binary_search::binary_search_on_array;
+use super::binary_search::{binary_search_on_array, ignoring_blanks};
 use super::util::{compare_values, from_wildcard_to_regex, result_matches_regex, values_are_equal};
 
 mod address_areas;
@@ -420,28 +420,31 @@ impl<'a> Model<'a> {
 
         match match_type {
             -1 => {
-                // We apply binary search leftmost for value in the vector
-                let mut l = 0;
-                let mut r = values.len();
-                while l < r {
-                    let m = (l + r) / 2;
-                    if compare_values(&values[m], &target) >= 0 {
-                        l = m + 1;
-                    } else {
-                        r = m;
+                // Empty cells are ignored, as in Excel
+                let found = ignoring_blanks(&values, |values| {
+                    // We apply binary search leftmost for value in the vector
+                    let mut l = 0;
+                    let mut r = values.len();
+                    while l < r {
+                        let m = (l + r) / 2;
+                        if compare_values(&values[m], &target) >= 0 {
+                            l = m + 1;
+                        } else {
+                            r = m;
+                        }
                     }
-                }
-                // r is the number of elements less than target in the vector
-                // If target is less than the minimum return #N/A
-                if l == 0 {
-                    return CalcResult::Error {
+                    // l is the number of elements greater than or equal to the
+                    // target; the last of them is the match (#N/A if there is none)
+                    l.checked_sub(1).map(|l| l as i32)
+                });
+                match found {
+                    Some(l) => CalcResult::Number(l as f64 + 1.0),
+                    None => CalcResult::Error {
                         error: Error::NA,
                         origin: cell,
                         message: "Not found".to_string(),
-                    };
+                    },
                 }
-                // Now l points to the leftmost element
-                CalcResult::Number(l as f64)
             }
             0 => {
                 // We apply linear search

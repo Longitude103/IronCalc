@@ -6,7 +6,7 @@ use crate::{
 use super::{
     binary_search::{
         binary_search_descending_or_greater, binary_search_descending_or_smaller,
-        binary_search_or_greater, binary_search_or_smaller,
+        binary_search_or_greater, binary_search_or_smaller, ignoring_blanks, is_blank_target,
     },
     util::{compare_values, from_wildcard_to_regex, result_matches_regex},
 };
@@ -287,28 +287,31 @@ impl<'a> Model<'a> {
                             }
                             SearchMode::BinarySearchAscending
                             | SearchMode::BinarySearchDescending => {
-                                let index = if match_mode == MatchMode::ExactMatchLarger {
-                                    if search_mode == SearchMode::BinarySearchAscending {
-                                        binary_search_or_greater(
-                                            &lookup_value,
-                                            &self.prepare_array(&left, &right, is_row_vector),
-                                        )
-                                    } else {
-                                        binary_search_descending_or_greater(
-                                            &lookup_value,
-                                            &self.prepare_array(&left, &right, is_row_vector),
-                                        )
-                                    }
-                                } else if search_mode == SearchMode::BinarySearchAscending {
-                                    binary_search_or_smaller(
-                                        &lookup_value,
-                                        &self.prepare_array(&left, &right, is_row_vector),
-                                    )
+                                // Empty cells are ignored, as in Excel
+                                let array = self.prepare_array(&left, &right, is_row_vector);
+                                let index = if is_blank_target(&lookup_value) {
+                                    // An empty lookup value is never found
+                                    None
                                 } else {
-                                    binary_search_descending_or_smaller(
-                                        &lookup_value,
-                                        &self.prepare_array(&left, &right, is_row_vector),
-                                    )
+                                    ignoring_blanks(&array, |array| {
+                                        if match_mode == MatchMode::ExactMatchLarger {
+                                            if search_mode == SearchMode::BinarySearchAscending {
+                                                binary_search_or_greater(&lookup_value, array)
+                                            } else {
+                                                binary_search_descending_or_greater(
+                                                    &lookup_value,
+                                                    array,
+                                                )
+                                            }
+                                        } else if search_mode == SearchMode::BinarySearchAscending {
+                                            binary_search_or_smaller(&lookup_value, array)
+                                        } else {
+                                            binary_search_descending_or_smaller(
+                                                &lookup_value,
+                                                array,
+                                            )
+                                        }
+                                    })
                                 };
                                 match index {
                                     None => if_not_found,
