@@ -150,3 +150,63 @@ fn test_fn_sumifs_whole_column_sees_a_spill_beyond_the_used_area() {
         assert_eq!(model.evaluation.restarts_in_last_evaluation, 1, "{formula}");
     }
 }
+
+// SUMIF takes the sum range as starting at its own top-left cell with the size
+// of the criteria range. SUMIFS needs equal sizes instead.
+#[test]
+fn test_fn_sumif_resizes_sum_range() {
+    let mut model = new_empty_model();
+    model.add_sheet("Data").unwrap();
+    for row in 1..=4 {
+        model._set(&format!("A{row}"), &row.to_string());
+        model._set(&format!("B{row}"), &(row * 10).to_string());
+        model._set(&format!("Data!B{row}"), &(row * 100).to_string());
+    }
+    model._set("D1", "=SUMIF(A1:A4,\">1\",B1)");
+    model._set("D2", "=SUMIF(A1:A4,\">1\",B1:B2)");
+    model._set("D3", "=SUMIF(A1:A4,\">1\",B1:B4)");
+    model._set("D4", "=SUMIF(A1:A4,\">1\",B2:B3)");
+    model._set("D5", "=SUMIF(A1:A2,\">0\",B1:C4)");
+    // A sum range on another sheet
+    model._set("D6", "=SUMIF(A1:A4,\">1\",Data!B1)");
+    // 2-D criteria range
+    model._set("D7", "=SUMIF(A1:B2,\">1\",B1)");
+    // The resized range stops at the last row of the sheet
+    model._set("D8", "=SUMIF(A1:A4,\">1\",B1048575)");
+    // Whole-column criteria range with a single-cell sum range
+    model._set("D9", "=SUMIF(A:A,\">1\",B2)");
+    // SUMIFS does not resize
+    model._set("D10", "=SUMIFS(B1,A1:A4,\">1\")");
+    model.evaluate();
+
+    assert_eq!(model._get_text("D1"), *"90");
+    assert_eq!(model._get_text("D2"), *"90");
+    assert_eq!(model._get_text("D3"), *"90");
+    // B2:B5 against A1:A4: A2..A4 pass, so B3 and B4 are added
+    assert_eq!(model._get_text("D4"), *"70");
+    assert_eq!(model._get_text("D5"), *"30");
+    assert_eq!(model._get_text("D6"), *"900");
+    // B1:C2 against A1:B2: of the criteria cells only A2, B1 and B2 pass, and
+    // they pair with B2 (20), C1 and C2 (both empty)
+    assert_eq!(model._get_text("D7"), *"20");
+    assert_eq!(model._get_text("D8"), *"0");
+    // B2:B5 against A1:A4, as D4 but over the whole column
+    assert_eq!(model._get_text("D9"), *"70");
+    assert_eq!(model._get_text("D10"), *"0");
+}
+
+// Without a sum range the criteria range is summed. A range that runs to the
+// last row but doesn't start at the first is clipped to the used area.
+#[test]
+fn test_fn_sumif_without_sum_range_open_ended() {
+    let mut model = new_empty_model();
+    for row in 1..=4 {
+        model._set(&format!("A{row}"), &row.to_string());
+    }
+    model._set("D1", "=SUMIF(A2:A1048576,\">2\")");
+    model._set("D2", "=AVERAGEIF(A2:A1048576,\">2\")");
+    model.evaluate();
+
+    assert_eq!(model._get_text("D1"), *"7");
+    assert_eq!(model._get_text("D2"), *"3.5");
+}

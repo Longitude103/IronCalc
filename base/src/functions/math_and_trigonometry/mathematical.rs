@@ -570,8 +570,8 @@ impl<'a> Model<'a> {
     pub(crate) fn fn_sumif(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
         // When sum_range is missing, criteria_range doubles as the sum_range.
         let (criteria_range, criteria, sum_range) = match args.len() {
-            2 => (&args[0], &args[1], &args[0]),
-            3 => (&args[0], &args[1], &args[2]),
+            2 => (&args[0], &args[1], None),
+            3 => (&args[0], &args[1], Some(&args[2])),
             _ => return CalcResult::new_args_number_error(cell),
         };
         self.sumif(criteria_range, criteria, sum_range, cell)

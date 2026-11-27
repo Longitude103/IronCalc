@@ -123,3 +123,14 @@ fn sumif_array_criteria_with_no_match() {
     assert_eq!(model._get_text("D1"), "120");
     assert_eq!(model._get_text("E1"), "0");
 }
+
+// ── The sum range is resized to the shape of the criteria range ───────────────
+
+#[test]
+fn sumif_array_criteria_resizes_sum_range() {
+    let mut model = numeric_model();
+    model._set("D1", r#"=SUMIF(A1:A5,{2;3},B1)"#);
+    model.evaluate();
+    assert_eq!(model._get_text("D1"), "20");
+    assert_eq!(model._get_text("D2"), "30");
+}
