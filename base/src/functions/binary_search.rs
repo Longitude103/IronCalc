@@ -179,8 +179,8 @@ fn is_blank(value: &CalcResult) -> bool {
     matches!(value, CalcResult::EmptyCell | CalcResult::EmptyArg)
 }
 
-/// Whether a lookup value is an empty cell. Excel returns #N/A when an
-/// approximate (or binary) search is asked for one.
+/// Whether a lookup value is an empty cell. XMATCH and XLOOKUP in the binary
+/// search modes never find one (VLOOKUP, HLOOKUP and LOOKUP compare it as 0).
 pub(crate) fn is_blank_target(target: &CalcResult) -> bool {
     is_blank(target)
 }
@@ -213,11 +213,8 @@ pub(crate) fn ignoring_blanks(
 /// Old style binary search over an already materialized vector of values.
 /// Returns the index of the matching element or the largest element smaller
 /// than `target`. Returns `-2` if `target` is smaller than every element.
-/// Empty cells are ignored, and an empty `target` is never found.
+/// Empty cells are ignored.
 pub(crate) fn binary_search_on_array(target: &CalcResult, array: &[CalcResult]) -> i32 {
-    if is_blank(target) {
-        return -2;
-    }
     ignoring_blanks(array, |array| {
         // We apply binary search leftmost for value in the array
         let mut l = 0;

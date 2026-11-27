@@ -174,13 +174,29 @@ fn test_vlookup_all_blank_and_leading_blanks() {
     model._set("G3", "=VLOOKUP(40,D1:E20,2)");
     model._set("G4", "=VLOOKUP(45,D1:E20,2)");
     model._set("G5", "=VLOOKUP(5,D1:E20,2)");
-    // An empty lookup value is not found
-    model._set("G6", "=VLOOKUP(Z1,D1:E20,2)");
     model.evaluate();
     assert_eq!(model._get_text("G1"), "#N/A");
     assert_eq!(model._get_text("G2"), "#N/A");
     assert_eq!(model._get_text("G3"), "4");
     assert_eq!(model._get_text("G4"), "4");
     assert_eq!(model._get_text("G5"), "#N/A");
-    assert_eq!(model._get_text("G6"), "#N/A");
+}
+
+#[test]
+fn test_vlookup_blank_lookup_value_is_zero() {
+    let mut model = new_empty_model();
+    for (row, (key, value)) in [(-5, "neg"), (0, "zero"), (10, "ten"), (20, "twenty")]
+        .iter()
+        .enumerate()
+    {
+        model._set(&format!("A{}", row + 1), &key.to_string());
+        model._set(&format!("B{}", row + 1), value);
+    }
+    // Z1 is empty and compares as 0
+    model._set("D1", "=VLOOKUP(Z1,A1:B4,2)");
+    // With trailing blank rows
+    model._set("D2", "=VLOOKUP(Z1,A1:B10,2)");
+    model.evaluate();
+    assert_eq!(model._get_text("D1"), "zero");
+    assert_eq!(model._get_text("D2"), "zero");
 }

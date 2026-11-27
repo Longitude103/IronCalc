@@ -160,3 +160,22 @@ fn test_lookup_all_blank_and_leading_blanks() {
     assert_eq!(model._get_text("G2"), "#N/A");
     assert_eq!(model._get_text("G3"), "2");
 }
+
+#[test]
+fn test_lookup_blank_lookup_value_is_zero() {
+    let mut model = new_empty_model();
+    for (row, (key, value)) in [(-5, "neg"), (0, "zero"), (10, "ten"), (20, "twenty")]
+        .iter()
+        .enumerate()
+    {
+        model._set(&format!("A{}", row + 1), &key.to_string());
+        model._set(&format!("B{}", row + 1), value);
+    }
+    // Z1 is empty and compares as 0
+    model._set("D1", "=LOOKUP(Z1,A1:A4,B1:B4)");
+    // With trailing blank rows
+    model._set("D2", "=LOOKUP(Z1,A1:A10,B1:B10)");
+    model.evaluate();
+    assert_eq!(model._get_text("D1"), "zero");
+    assert_eq!(model._get_text("D2"), "zero");
+}

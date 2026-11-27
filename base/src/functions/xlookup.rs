@@ -289,26 +289,30 @@ impl<'a> Model<'a> {
                             | SearchMode::BinarySearchDescending => {
                                 // Empty cells are ignored, as in Excel
                                 let array = self.prepare_array(&left, &right, is_row_vector);
-                                let index = ignoring_blanks(&array, |array| {
+                                let index = if is_blank_target(&lookup_value) {
                                     // An empty lookup value is never found
-                                    if is_blank_target(&lookup_value) {
-                                        return None;
-                                    }
-                                    if match_mode == MatchMode::ExactMatchLarger {
-                                        if search_mode == SearchMode::BinarySearchAscending {
-                                            binary_search_or_greater(&lookup_value, array)
+                                    None
+                                } else {
+                                    ignoring_blanks(&array, |array| {
+                                        if match_mode == MatchMode::ExactMatchLarger {
+                                            if search_mode == SearchMode::BinarySearchAscending {
+                                                binary_search_or_greater(&lookup_value, array)
+                                            } else {
+                                                binary_search_descending_or_greater(
+                                                    &lookup_value,
+                                                    array,
+                                                )
+                                            }
+                                        } else if search_mode == SearchMode::BinarySearchAscending {
+                                            binary_search_or_smaller(&lookup_value, array)
                                         } else {
-                                            binary_search_descending_or_greater(
+                                            binary_search_descending_or_smaller(
                                                 &lookup_value,
                                                 array,
                                             )
                                         }
-                                    } else if search_mode == SearchMode::BinarySearchAscending {
-                                        binary_search_or_smaller(&lookup_value, array)
-                                    } else {
-                                        binary_search_descending_or_smaller(&lookup_value, array)
-                                    }
-                                });
+                                    })
+                                };
                                 match index {
                                     None => if_not_found,
                                     Some(l) => {

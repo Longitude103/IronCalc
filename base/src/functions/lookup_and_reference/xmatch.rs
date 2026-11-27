@@ -290,22 +290,23 @@ impl<'a> Model<'a> {
                 }
                 // Empty cells are ignored, as in Excel
                 // and an empty lookup value is never found
-                let idx_opt = ignoring_blanks(&array, |array| {
-                    if is_blank_target(&lookup_value) {
-                        return None;
-                    }
-                    if match_mode == MatchMode::ExactMatchLarger {
-                        if search_mode == SearchMode::BinaryAscending {
-                            binary_search_or_greater(&lookup_value, array)
+                let idx_opt = if is_blank_target(&lookup_value) {
+                    None
+                } else {
+                    ignoring_blanks(&array, |array| {
+                        if match_mode == MatchMode::ExactMatchLarger {
+                            if search_mode == SearchMode::BinaryAscending {
+                                binary_search_or_greater(&lookup_value, array)
+                            } else {
+                                binary_search_descending_or_greater(&lookup_value, array)
+                            }
+                        } else if search_mode == SearchMode::BinaryAscending {
+                            binary_search_or_smaller(&lookup_value, array)
                         } else {
-                            binary_search_descending_or_greater(&lookup_value, array)
+                            binary_search_descending_or_smaller(&lookup_value, array)
                         }
-                    } else if search_mode == SearchMode::BinaryAscending {
-                        binary_search_or_smaller(&lookup_value, array)
-                    } else {
-                        binary_search_descending_or_smaller(&lookup_value, array)
-                    }
-                });
+                    })
+                };
 
                 match idx_opt {
                     None => CalcResult::new_error(Error::NA, cell, "Not found".to_string()),

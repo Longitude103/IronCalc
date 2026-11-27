@@ -155,3 +155,23 @@ fn test_hlookup_all_blank_and_leading_blanks() {
     assert_eq!(model._get_text("A9"), "2");
     assert_eq!(model._get_text("A10"), "#N/A");
 }
+
+#[test]
+fn test_hlookup_blank_lookup_value_is_zero() {
+    let mut model = new_empty_model();
+    for (column, (key, value)) in
+        ["A", "B", "C", "D"]
+            .iter()
+            .zip([(-5, "neg"), (0, "zero"), (10, "ten"), (20, "twenty")])
+    {
+        model._set(&format!("{column}1"), &key.to_string());
+        model._set(&format!("{column}2"), value);
+    }
+    // Z1 is empty and compares as 0
+    model._set("A4", "=HLOOKUP(Z1,A1:D2,2)");
+    // With trailing blank columns
+    model._set("A5", "=HLOOKUP(Z1,A1:J2,2)");
+    model.evaluate();
+    assert_eq!(model._get_text("A4"), "zero");
+    assert_eq!(model._get_text("A5"), "zero");
+}
