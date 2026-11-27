@@ -112,3 +112,47 @@ fn test_vlookup_column_index_below_one() {
     assert_eq!(model._get_text("E6"), "two");
     assert_eq!(model._get_text("E7"), "2");
 }
+
+#[test]
+fn test_vlookup_ignores_trailing_blanks() {
+    let mut model = new_empty_model();
+    // The range is larger than the data: rows 6 to 20 are empty.
+    for (row, value) in [10, 20, 30, 40, 50].iter().enumerate() {
+        model._set(&format!("A{}", row + 1), &value.to_string());
+        model._set(&format!("B{}", row + 1), &(row + 1).to_string());
+    }
+    model._set("D1", "=VLOOKUP(40,A1:B20,2)");
+    model._set("D2", "=VLOOKUP(45,A1:B20,2)");
+    model._set("D3", "=VLOOKUP(500,A1:B20,2)");
+    model._set("D4", "=VLOOKUP(5,A1:B20,2)");
+    model._set("D5", "=VLOOKUP(40,A1:B20,2,FALSE)");
+    model._set("D6", "=VLOOKUP(45,A1:B20,2,FALSE)");
+    model.evaluate();
+    assert_eq!(model._get_text("D1"), "4");
+    assert_eq!(model._get_text("D2"), "4");
+    assert_eq!(model._get_text("D3"), "5");
+    assert_eq!(model._get_text("D4"), "#N/A");
+    assert_eq!(model._get_text("D5"), "4");
+    assert_eq!(model._get_text("D6"), "#N/A");
+}
+
+#[test]
+fn test_vlookup_ignores_interior_blanks() {
+    let mut model = new_empty_model();
+    model._set("A1", "10");
+    model._set("A2", "20");
+    model._set("A4", "30");
+    model._set("A5", "40");
+    model._set("B1", "1");
+    model._set("B2", "2");
+    model._set("B3", "99");
+    model._set("B4", "4");
+    model._set("B5", "5");
+    model._set("D1", "=VLOOKUP(25,A1:B8,2)");
+    model._set("D2", "=VLOOKUP(40,A1:B8,2)");
+    model._set("D3", "=VLOOKUP(35,A1:B8,2)");
+    model.evaluate();
+    assert_eq!(model._get_text("D1"), "2");
+    assert_eq!(model._get_text("D2"), "5");
+    assert_eq!(model._get_text("D3"), "4");
+}

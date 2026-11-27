@@ -172,31 +172,51 @@ impl<'a> Model<'a> {
     }
 }
 
+/// Runs `search` on `array` ignoring empty cells, like Excel does for approximate
+/// matches (a range larger than its data, with trailing blank rows, is common).
+/// The index returned by `search` is mapped back to a position in `array`.
+pub(crate) fn ignoring_blanks(
+    array: &[CalcResult],
+    search: impl Fn(&[CalcResult]) -> Option<i32>,
+) -> Option<i32> {
+    let (positions, values): (Vec<usize>, Vec<CalcResult>) = array
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| !matches!(v, CalcResult::EmptyCell | CalcResult::EmptyArg))
+        .map(|(i, v)| (i, v.clone()))
+        .unzip();
+    search(&values).map(|l| positions[l as usize] as i32)
+}
+
 /// Old style binary search over an already materialized vector of values.
 /// Returns the index of the matching element or the largest element smaller
 /// than `target`. Returns `-2` if `target` is smaller than every element.
+/// Empty cells are ignored.
 pub(crate) fn binary_search_on_array(target: &CalcResult, array: &[CalcResult]) -> i32 {
-    // We apply binary search leftmost for value in the array
-    let mut l = 0;
-    let mut r = array.len();
-    while l < r {
-        let m = (l + r) / 2;
-        match compare_values(&array[m], target) {
-            -1 => {
-                l = m + 1;
-            }
-            1 => {
-                r = m;
-            }
-            _ => {
-                return m as i32;
+    ignoring_blanks(array, |array| {
+        // We apply binary search leftmost for value in the array
+        let mut l = 0;
+        let mut r = array.len();
+        while l < r {
+            let m = (l + r) / 2;
+            match compare_values(&array[m], target) {
+                -1 => {
+                    l = m + 1;
+                }
+                1 => {
+                    r = m;
+                }
+                _ => {
+                    return Some(m as i32);
+                }
             }
         }
-    }
-    // If target is less than the minimum return #N/A
-    if l == 0 {
-        return -2;
-    }
-    // Now l points to the leftmost element
-    (l - 1) as i32
+        // If target is less than the minimum return #N/A
+        if l == 0 {
+            return None;
+        }
+        // Now l points to the leftmost element
+        Some((l - 1) as i32)
+    })
+    .unwrap_or(-2)
 }

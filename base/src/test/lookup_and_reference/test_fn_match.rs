@@ -68,3 +68,29 @@ fn test_match_array_not_a_vector() {
     model.evaluate();
     assert_eq!(model._get_text("A1"), "#ERROR!");
 }
+
+#[test]
+fn test_match_ignores_blanks() {
+    let mut model = new_empty_model();
+    // Ascending data followed by empty rows
+    for (row, value) in [10, 20, 30, 40, 50].iter().enumerate() {
+        model._set(&format!("A{}", row + 1), &value.to_string());
+    }
+    // Descending data followed by empty rows
+    for (row, value) in [50, 40, 30, 20, 10].iter().enumerate() {
+        model._set(&format!("C{}", row + 1), &value.to_string());
+    }
+    model._set("E1", "=MATCH(40,A1:A20,1)");
+    model._set("E2", "=MATCH(45,A1:A20)");
+    model._set("E3", "=MATCH(500,A1:A20)");
+    model._set("E4", "=MATCH(25,C1:C20,-1)");
+    model._set("E5", "=MATCH(40,C1:C20,-1)");
+    model._set("E6", "=MATCH(100,C1:C20,-1)");
+    model.evaluate();
+    assert_eq!(model._get_text("E1"), "4");
+    assert_eq!(model._get_text("E2"), "4");
+    assert_eq!(model._get_text("E3"), "5");
+    assert_eq!(model._get_text("E4"), "3");
+    assert_eq!(model._get_text("E5"), "2");
+    assert_eq!(model._get_text("E6"), "#N/A");
+}

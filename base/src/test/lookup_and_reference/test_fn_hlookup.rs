@@ -112,3 +112,24 @@ fn test_hlookup_row_index_below_one() {
     assert_eq!(model._get_text("E6"), "two");
     assert_eq!(model._get_text("E7"), "10");
 }
+
+#[test]
+fn test_hlookup_ignores_trailing_blanks() {
+    let mut model = new_empty_model();
+    // The range is larger than the data: columns F to T are empty.
+    for (column, value) in ["A", "B", "C", "D", "E"].iter().zip([10, 20, 30, 40, 50]) {
+        model._set(&format!("{column}1"), &value.to_string());
+    }
+    model._set("A2", "1");
+    model._set("B2", "2");
+    model._set("C2", "3");
+    model._set("D2", "4");
+    model._set("E2", "5");
+    model._set("A4", "=HLOOKUP(40,A1:T2,2)");
+    model._set("A5", "=HLOOKUP(45,A1:T2,2)");
+    model._set("A6", "=HLOOKUP(500,A1:T2,2)");
+    model.evaluate();
+    assert_eq!(model._get_text("A4"), "4");
+    assert_eq!(model._get_text("A5"), "4");
+    assert_eq!(model._get_text("A6"), "5");
+}

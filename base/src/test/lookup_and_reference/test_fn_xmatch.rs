@@ -308,3 +308,30 @@ fn test_xmatch_whole_column_sees_a_spill_beyond_the_used_area() {
     assert_eq!(model._get_text("A1"), "5");
     assert_eq!(model.evaluation.restarts_in_last_evaluation, 0);
 }
+
+// ── binary search ignores empty cells ─────────────────────────────────────────
+
+#[test]
+fn test_xmatch_xlookup_binary_ignores_blanks() {
+    let mut model = new_empty_model();
+    for (row, value) in [10, 20, 30, 40, 50].iter().enumerate() {
+        model._set(&format!("A{}", row + 1), &value.to_string());
+        model._set(&format!("B{}", row + 1), &(row + 1).to_string());
+    }
+    for (row, value) in [50, 40, 30, 20, 10].iter().enumerate() {
+        model._set(&format!("C{}", row + 1), &value.to_string());
+    }
+    model._set("E1", "=XMATCH(45,A1:A20,-1,2)");
+    model._set("E2", "=XMATCH(45,A1:A20,1,2)");
+    model._set("E3", "=XMATCH(25,C1:C20,1,-2)");
+    model._set("E4", "=XMATCH(25,C1:C20,-1,-2)");
+    model._set("E5", "=XLOOKUP(45,A1:A20,B1:B20,\"none\",-1,2)");
+    model._set("E6", "=XLOOKUP(40,A1:A20,B1:B20,\"none\",0,2)");
+    model.evaluate();
+    assert_eq!(model._get_text("E1"), "4");
+    assert_eq!(model._get_text("E2"), "5");
+    assert_eq!(model._get_text("E3"), "3");
+    assert_eq!(model._get_text("E4"), "4");
+    assert_eq!(model._get_text("E5"), "4");
+    assert_eq!(model._get_text("E6"), "4");
+}

@@ -127,3 +127,17 @@ fn test_lookup_array_form_range_wide() {
     model.evaluate();
     assert_eq!(model._get_text("E1"), "y");
 }
+
+#[test]
+fn test_lookup_ignores_trailing_blanks() {
+    let mut model = new_empty_model();
+    for (row, value) in [10, 20, 30, 40, 50].iter().enumerate() {
+        model._set(&format!("A{}", row + 1), &value.to_string());
+        model._set(&format!("B{}", row + 1), &(row + 1).to_string());
+    }
+    model._set("D1", "=LOOKUP(40,A1:A20,B1:B20)");
+    model._set("D2", "=LOOKUP(45,A1:B20)");
+    model.evaluate();
+    assert_eq!(model._get_text("D1"), "4");
+    assert_eq!(model._get_text("D2"), "4");
+}
