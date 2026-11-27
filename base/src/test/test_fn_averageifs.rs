@@ -61,3 +61,34 @@ fn test_fn_averageifs_whole_column_sees_a_spill_beyond_the_used_area() {
         assert_eq!(model.evaluation.restarts_in_last_evaluation, 1, "{formula}");
     }
 }
+
+// Like SUMIF, AVERAGEIF takes the average range as starting at its own
+// top-left cell with the size of the criteria range. AVERAGEIFS needs equal
+// sizes instead.
+#[test]
+fn test_fn_averageif_resizes_average_range() {
+    let mut model = new_empty_model();
+    for row in 1..=4 {
+        model._set(&format!("A{row}"), &row.to_string());
+        model._set(&format!("B{row}"), &(row * 10).to_string());
+    }
+    model._set("D1", "=AVERAGEIF(A1:A4,\">1\",B1)");
+    model._set("D2", "=AVERAGEIF(A1:A4,\">1\",B1:B2)");
+    model._set("D3", "=AVERAGEIF(A1:A4,\">1\",B1:B4)");
+    model._set("D4", "=AVERAGEIF(A1:A4,\">1\",B2:B3)");
+    // The shape comes from the criteria range, also across columns
+    model._set("D5", "=AVERAGEIF(A1:A2,\">0\",B1:C4)");
+    model._set("D6", "=AVERAGEIF(A1:B2,\">0\",B1)");
+    // AVERAGEIFS does not resize
+    model._set("D7", "=AVERAGEIFS(B1,A1:A4,\">1\")");
+    model.evaluate();
+
+    assert_eq!(model._get_text("D1"), *"30");
+    assert_eq!(model._get_text("D2"), *"30");
+    assert_eq!(model._get_text("D3"), *"30");
+    // B2:B5 against A1:A4: A2..A4 pass, so B3 and B4 are averaged
+    assert_eq!(model._get_text("D4"), *"35");
+    assert_eq!(model._get_text("D5"), *"15");
+    assert_eq!(model._get_text("D6"), *"15");
+    assert_eq!(model._get_text("D7"), *"#DIV/0!");
+}

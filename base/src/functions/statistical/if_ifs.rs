@@ -27,6 +27,16 @@ fn array_node_to_calc_result(node: &ArrayNode, cell: CellReferenceIndex) -> Calc
     }
 }
 
+/// The range that starts at the top-left cell of `range` and has the height and
+/// width of `shape`, cut at the edge of the sheet.
+fn resize_to(range: &Range, shape: &Range) -> Range {
+    let mut resized = range.clone();
+    resized.right.row = (range.left.row + shape.right.row - shape.left.row).min(LAST_ROW);
+    resized.right.column =
+        (range.left.column + shape.right.column - shape.left.column).min(LAST_COLUMN);
+    resized
+}
+
 impl<'a> Model<'a> {
     pub(crate) fn fn_countif(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
         if args.len() == 2 {
@@ -42,10 +52,10 @@ impl<'a> Model<'a> {
     pub(crate) fn fn_averageif(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
         if args.len() == 2 {
             let arguments = vec![args[0].clone(), args[0].clone(), args[1].clone()];
-            self.fn_averageifs(&arguments, cell)
+            self.average_ifs(&arguments, cell, true)
         } else if args.len() == 3 {
             let arguments = vec![args[2].clone(), args[0].clone(), args[1].clone()];
-            self.fn_averageifs(&arguments, cell)
+            self.average_ifs(&arguments, cell, true)
         } else {
             CalcResult::new_args_number_error(cell)
         }
@@ -188,11 +198,29 @@ impl<'a> Model<'a> {
     where
         F: FnMut(f64),
     {
+        self.apply_ifs_resized(args, cell, false, apply)
+    }
+
+    /// Same as [`Model::apply_ifs`]. When `resize_sum_range` is true the first
+    /// range is taken as starting at its top-left cell with the shape of the
+    /// first criteria range, which is what SUMIF and AVERAGEIF do in Excel when
+    /// the two ranges differ in size. The *IFS functions don't resize: they need
+    /// equal sizes.
+    fn apply_ifs_resized<F>(
+        &mut self,
+        args: &[Node],
+        cell: CellReferenceIndex,
+        resize_sum_range: bool,
+        apply: F,
+    ) -> Result<(), CalcResult>
+    where
+        F: FnMut(f64),
+    {
         let args_count = args.len();
         if args_count < 3 || args_count.is_multiple_of(2) {
             return Err(CalcResult::new_args_number_error(cell));
         }
-        let sum_range = self.node_to_range(&args[0], cell)?;
+        let mut sum_range = self.node_to_range(&args[0], cell)?;
 
         let case_count = (args_count - 1) / 2;
         // NB: this is a beautiful example of the borrow checker
@@ -212,6 +240,9 @@ impl<'a> Model<'a> {
         }
         for criterion in criteria.iter() {
             fn_criteria.push(build_criteria(criterion, self.locale, self.date_system()));
+        }
+        if resize_sum_range {
+            sum_range = resize_to(&sum_range, &ranges[0]);
         }
 
         self.run_ifs(&sum_range, ranges.as_slice(), &fn_criteria, cell, apply)
@@ -380,7 +411,11 @@ impl<'a> Model<'a> {
             _ => {
                 // Single criterion: delegate to SUMIFS, which returns a scalar.
                 let arguments = vec![sum_range.clone(), criteria_range.clone(), criteria.clone()];
-                return self.fn_sumifs(&arguments, cell);
+                let mut total = 0.0;
+                return match self.apply_ifs_resized(&arguments, cell, true, |v| total += v) {
+                    Ok(()) => CalcResult::Number(total),
+                    Err(e) => e,
+                };
             }
         };
 
@@ -394,6 +429,7 @@ impl<'a> Model<'a> {
             Ok(r) => r,
             Err(e) => return e,
         };
+        let sum_range = resize_to(&sum_range, &criteria_range);
 
         let mut output: Vec<Vec<ArrayNode>> = Vec::with_capacity(criteria_grid.len());
         for criteria_row in &criteria_grid {
@@ -420,6 +456,15 @@ impl<'a> Model<'a> {
     }
 
     pub(crate) fn fn_averageifs(&mut self, args: &[Node], cell: CellReferenceIndex) -> CalcResult {
+        self.average_ifs(args, cell, false)
+    }
+
+    fn average_ifs(
+        &mut self,
+        args: &[Node],
+        cell: CellReferenceIndex,
+        resize_average_range: bool,
+    ) -> CalcResult {
         let mut total = 0.0;
         let mut count = 0.0;
 
@@ -427,7 +472,7 @@ impl<'a> Model<'a> {
             total += value;
             count += 1.0;
         };
-        if let Err(e) = self.apply_ifs(args, cell, average) {
+        if let Err(e) = self.apply_ifs_resized(args, cell, resize_average_range, average) {
             return e;
         }
 

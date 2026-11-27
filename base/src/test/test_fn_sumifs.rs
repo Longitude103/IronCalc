@@ -150,3 +150,33 @@ fn test_fn_sumifs_whole_column_sees_a_spill_beyond_the_used_area() {
         assert_eq!(model.evaluation.restarts_in_last_evaluation, 1, "{formula}");
     }
 }
+
+// SUMIF takes the sum range as starting at its own top-left cell with the size
+// of the criteria range. SUMIFS needs equal sizes instead.
+#[test]
+fn test_fn_sumif_resizes_sum_range() {
+    let mut model = new_empty_model();
+    for row in 1..=4 {
+        model._set(&format!("A{row}"), &row.to_string());
+        model._set(&format!("B{row}"), &(row * 10).to_string());
+    }
+    model._set("D1", "=SUMIF(A1:A4,\">1\",B1)");
+    model._set("D2", "=SUMIF(A1:A4,\">1\",B1:B2)");
+    model._set("D3", "=SUMIF(A1:A4,\">1\",B1:B4)");
+    model._set("D4", "=SUMIF(A1:A4,\">1\",B2:B3)");
+    model._set("D5", "=SUMIF(A1:A2,\">0\",B1:C4)");
+    // A criteria range of several criteria spills; the sum range is resized too
+    model._set("D6", "=SUMIF(A1:A4,{2;3},B1)");
+    // SUMIFS does not resize
+    model._set("D8", "=SUMIFS(B1,A1:A4,\">1\")");
+    model.evaluate();
+
+    assert_eq!(model._get_text("D1"), *"90");
+    assert_eq!(model._get_text("D2"), *"90");
+    assert_eq!(model._get_text("D3"), *"90");
+    assert_eq!(model._get_text("D4"), *"70");
+    assert_eq!(model._get_text("D5"), *"30");
+    assert_eq!(model._get_text("D6"), *"20");
+    assert_eq!(model._get_text("D7"), *"30");
+    assert_eq!(model._get_text("D8"), *"0");
+}
