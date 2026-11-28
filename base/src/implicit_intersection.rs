@@ -37,8 +37,10 @@ pub(crate) fn implicit_intersection(
     }
     let row = cell_reference.row;
     let column = cell_reference.column;
-    // A one-column range intersects by row and a one-row range by column. Checking which way the range runs first matters when
-    // the cell is level with a one-row range: `=Data!B6:J6` entered in B6 of another sheet is Data!B6, not an error.
+    // A one-column range intersects by row and a one-row range by
+    // column. Checking which way the range runs first matters when the
+    // cell is level with a one-row range: `=@Data!B6:J6` entered in B6 of
+    // another sheet is Data!B6, not an error.
     if left.column == right.column && row >= left.row && row <= right.row {
         return Some(CellReferenceIndex {
             sheet,

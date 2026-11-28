@@ -325,8 +325,16 @@ fn level_with_a_one_row_range_on_another_sheet() {
     model.evaluate();
     assert_eq!(model._get_text("B6"), "2026");
     assert_eq!(model._get_text("C6"), "7");
-    assert_eq!(model._get_text("K6"), "#VALUE!", "outside the row's columns");
-    assert_eq!(model._get_text("B7"), "2026", "a row below still takes the column");
+    assert_eq!(
+        model._get_text("K6"),
+        "#VALUE!",
+        "outside the row's columns"
+    );
+    assert_eq!(
+        model._get_text("B7"),
+        "2026",
+        "a row below still takes the column"
+    );
 }
 
 #[test]
@@ -340,5 +348,9 @@ fn level_with_a_one_column_range_and_a_block() {
     model.evaluate();
     assert_eq!(model._get_text("C2"), "5");
     assert_eq!(model._get_text("E5"), "#VALUE!");
-    assert_eq!(model._get_text("D2"), "#VALUE!", "a block is not a row or a column");
+    assert_eq!(
+        model._get_text("D2"),
+        "#VALUE!",
+        "a block is not a row or a column"
+    );
 }
