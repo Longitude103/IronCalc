@@ -310,3 +310,47 @@ fn parentheses_are_kept_around_operations() {
     model.evaluate();
     assert_eq!(model._get_text("C9"), "3");
 }
+
+#[test]
+fn level_with_a_one_row_range_on_another_sheet() {
+    // `=@Master!B6:J6` in B6 of another sheet picks Master!B6 (the cell's own column), as Excel does.
+    let mut model = new_empty_model();
+    model.new_sheet();
+    model._set("Sheet2!B6", "2026");
+    model._set("Sheet2!C6", "7");
+    model._set("B6", "=@Sheet2!B6:J6");
+    model._set("C6", "=@Sheet2!B6:J6");
+    model._set("K6", "=@Sheet2!B6:J6");
+    model._set("B7", "=@Sheet2!B6:J6");
+    model.evaluate();
+    assert_eq!(model._get_text("B6"), "2026");
+    assert_eq!(model._get_text("C6"), "7");
+    assert_eq!(
+        model._get_text("K6"),
+        "#VALUE!",
+        "outside the row's columns"
+    );
+    assert_eq!(
+        model._get_text("B7"),
+        "2026",
+        "a row below still takes the column"
+    );
+}
+
+#[test]
+fn level_with_a_one_column_range_and_a_block() {
+    let mut model = new_empty_model();
+    model._set("A2", "5");
+    model._set("C2", "=@A1:A3");
+    model._set("E5", "=@A1:C3");
+    model._set("B2", "=1");
+    model._set("D2", "=@A1:C3");
+    model.evaluate();
+    assert_eq!(model._get_text("C2"), "5");
+    assert_eq!(model._get_text("E5"), "#VALUE!");
+    assert_eq!(
+        model._get_text("D2"),
+        "#VALUE!",
+        "a block is not a row or a column"
+    );
+}
