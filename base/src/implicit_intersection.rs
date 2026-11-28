@@ -5,6 +5,8 @@ use crate::{calc_result::Range, expressions::types::CellReferenceIndex};
 ///  * i_i(B5, A2:A9) -> B5
 ///  * i_i(B5, A7:A9) -> None
 ///  * i_i(B5, A2:D2) -> B2
+///  * i_i(B2, A2:D2) -> B2 (level with a one-row range)
+///  * i_i(B2, A1:D3) -> None (a block, not a row or a column)
 ///
 /// Excel-parity, cross-sheet:
 ///  * a 1x1 range always dereferences, regardless of the consuming cell's
@@ -35,19 +37,16 @@ pub(crate) fn implicit_intersection(
     }
     let row = cell_reference.row;
     let column = cell_reference.column;
-    if row >= left.row && row <= right.row {
-        if left.column != right.column {
-            return None;
-        }
+    // A one-column range intersects by row and a one-row range by column. Checking which way the range runs first matters when
+    // the cell is level with a one-row range: `=Data!B6:J6` entered in B6 of another sheet is Data!B6, not an error.
+    if left.column == right.column && row >= left.row && row <= right.row {
         return Some(CellReferenceIndex {
             sheet,
             row,
             column: left.column,
         });
-    } else if column >= left.column && column <= right.column {
-        if left.row != right.row {
-            return None;
-        }
+    }
+    if left.row == right.row && column >= left.column && column <= right.column {
         return Some(CellReferenceIndex {
             sheet,
             row: left.row,
